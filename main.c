@@ -30,12 +30,12 @@ void print_matrix_square(double* A,int n_col) {
 }
 
 void mat_mul(double* A, double* B, double* C, int n_col) {
-
   for(int i=0; i<n_col;++i) {
+    int row=i*N;
     for(int j=0;j<n_col;++j){
+      int idx=row+j;
       for(int k=0;k<N;++k) {
-        //printf("C %d A %d B B %d \n", i*N+j,i*N+k,k*n_col+j);
-        C[i*N+j]+=A[i*N+k]*B[k*n_col+j];
+        C[idx]+=A[row+k]*B[k*n_col+j];
       }
     }
   }
@@ -59,52 +59,63 @@ int main(int argc,char* argv[]) {
 
   int n_col=N/procs;
   double* A=malloc(N*n_col*sizeof(double));
-  memset(A, 0, N*n_col);
+  //memset(A, 0, N*n_col);
+  rank_mat(A,n_col*N,rank);
 
   double* B=malloc(N*n_col*sizeof(double));
-  memset(B, 0, N*n_col);
+  //memset(B, 0, N*n_col);
   rank_mat(B,N*n_col,rank); //ogni matrice ha il rank del possesore
 
   double* C=malloc(N*n_col*sizeof(double));
   memset(C, 0, N*n_col);
 
-#ifdef DEBUG
-    if(rank==0) {
-      rank_mat(A,n_col*N,1);
-      printf("Matricia a\n");
-      print_matrix(A ,n_col);
-      printf("\n");
-    }
-#endif
-
-
-  MPI_Barrier(MPI_COMM_WORLD);
   double* buffer=malloc(N*n_col*sizeof(double));
+
+
+  
+
   MPI_Datatype blocco;
   MPI_Type_vector(n_col,n_col,n_col*(n_col-2),MPI_DOUBLE,&blocco);
   MPI_Type_commit(&blocco);
 
-  MPI_Allgather(B, 1, blocco,
-		buffer , n_col*n_col, MPI_DOUBLE,
-		MPI_COMM_WORLD);
+
+  for(int p=0;p<procs;++p){
+      MPI_Allgather(B+n_col*p, 1, blocco,
+                  buffer , n_col*n_col, MPI_DOUBLE,
+                  MPI_COMM_WORLD);
 
 #ifdef DEBUG
-  if(rank==0) {
-    printf("Stampo la colonna intera\n");
-    print_matrix_transpose(buffer,n_col);
-  }
+    if(rank==2) {
+      printf("Stampo la colonna buffer\n");
+      print_matrix_transpose(buffer,n_col);
+    }
 #endif
 
 
 #ifdef DEBUG
+    if(rank==2){
+      printf("Stampo la matrice C!\n");
+      print_matrix(C, n_col);
+    }
+#endif
+    mat_mul(A, buffer, C+n_col*p, n_col);
+  }
+
+  double* C_final=malloc(N*N*sizeof(double));
+  MPI_Barrier(MPI_COMM_WORLD);
+  MPI_Gather(C,
+             N*n_col,
+             MPI_DOUBLE,
+             C_final,
+             N*n_col,
+             MPI_DOUBLE,
+             0,
+             MPI_COMM_WORLD);
+
   if(rank==0){
-    printf("Stampo na roba square!\n");
-    mat_mul(A, buffer, C, n_col);
-    print_matrix(C, n_col);
+    printf("FINALEEEE \n");
+    print_matrix(C_final,N);
   }
-#endif
-
-
-MPI_Finalize();
+  MPI_Finalize();
 
 }

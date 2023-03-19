@@ -3,9 +3,8 @@
 #include <string.h>
 #include <mpi.h>
 #include <cblas.h>
-
 #ifndef N
-   #define N 21
+   #define N 2000
 #endif
 
 
@@ -100,6 +99,9 @@ void extract(double* destination ,double*source,int n_fix,int n_col) {
 
 int main(int argc,char* argv[]) {
   MPI_Init(&argc,&argv);
+  double comm_time=0;
+  double tot_time=0;
+  double accumulator=0;
   int procs,rank;
   MPI_Comm_size(MPI_COMM_WORLD,&procs);
   MPI_Comm_rank(MPI_COMM_WORLD,&rank);
@@ -133,7 +135,7 @@ int main(int argc,char* argv[]) {
 
 
   //MPI_Datatype blocco;
-
+  tot_time+=MPI_Wtime();
   for(int p=0;p<procs;++p){
     
     //numero di colonne all'iterazione corrente
@@ -152,23 +154,33 @@ int main(int argc,char* argv[]) {
     
     extract(square,B+offset,n_fix,n_col);
 
+    comm_time=MPI_Wtime();
+
     MPI_Allgatherv( square , n_col*n_fix, MPI_DOUBLE,
                     buffer ,recvcount,displacement,MPI_DOUBLE,MPI_COMM_WORLD);
-    
+    comm_time=MPI_Wtime() - comm_time;
+    accumulator+=comm_time;
     //MPI_Type_free(&blocco);
 
-    //mat_mul(A, buffer, C+offset, n_col, n_fix); 
+#ifndef DGEMM
+    mat_mul(A, buffer, C+offset, n_col, n_fix);
+#else
     cblas_dgemm ( CblasRowMajor, CblasNoTrans, CblasNoTrans , n_fix , n_col , N , 1.0 , A , N , buffer , n_col , 0.0 ,  C+offset, N );
+#endif
 
   }
+  tot_time=MPI_Wtime()-tot_time;
+  if(rank==0)
+    printf("%d %f %f\n",procs,tot_time,accumulator);
   
 
 #ifdef DEBUG
+
   double* C_final=malloc(N*N*sizeof(double));
   for(int p=0;p<procs;++p){
     recvcount[p]=N * calculate_col(N,procs,p);
   }
-#endif  
+
   set_displacement(displacement,recvcount,procs);
   MPI_Gatherv(C,
              N*n_fix,
@@ -178,6 +190,8 @@ int main(int argc,char* argv[]) {
              MPI_DOUBLE,
              0,
              MPI_COMM_WORLD);
+#endif
+
 #if ( defined DEBUG2 || defined DEBUG)
   if(rank==0){
     printf("FINALEEEE \n");

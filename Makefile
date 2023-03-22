@@ -1,7 +1,7 @@
 # Define required macros here
 SHELL = /bin/sh
 
-CFLAG = -Wall -03 -march=native -Wextra  -DDGEMM
+CFLAG = -Wall -03 -march=native -Wextra  -DDGEMM -DDEBUG
 CC = mpicc
 INCLUDES = -I/usr/include/openblas/
 LIBS = -lopenblas

@@ -188,20 +188,47 @@ int main(int argc,char* argv[]) {
   }
 
   set_displacement(displacement,recvcount,procs);
-  MPI_Gatherv(C,
-             N*n_fix,
-             MPI_DOUBLE,
-             C_final,
+
+  double* B_final=malloc(N*N*sizeof(double));
+  double* A_final=malloc(N*N*sizeof(double));
+  double* C_final2=malloc(N*N*sizeof(double));
+  MPI_Gatherv(A,
+              N*n_fix,
+              MPI_DOUBLE,
+              A_final,
               recvcount,displacement,
-             MPI_DOUBLE,
-             0,
-             MPI_COMM_WORLD);
+              MPI_DOUBLE,
+              0,
+              MPI_COMM_WORLD);
+  MPI_Gatherv(B,
+              N*n_fix,
+              MPI_DOUBLE,
+              B_final,
+              recvcount,displacement,
+              MPI_DOUBLE,
+              0,
+              MPI_COMM_WORLD);
+  MPI_Gatherv(C,
+              N*n_fix,
+              MPI_DOUBLE,
+              C_final,
+              recvcount,displacement,
+              MPI_DOUBLE,
+              0,
+              MPI_COMM_WORLD);
+  if (rank==0) {
+  cblas_dgemm ( CblasRowMajor, CblasNoTrans, CblasNoTrans , N , N , N , 1.0 , A_final , N , B_final , N , 0.0 ,  C_final2, N );
+  for(int i=0;i<N*N;++i) {
+    if (C_final[i] != C_final2[i])
+      print("Errore");
+  }
+  }
 #endif
 
 #if ( defined DEBUG2 || defined DEBUG)
   if(rank==0){
     printf("FINALEEEE \n");
-    print_matrix(C_final,N);
+    print_matrix(C_final2,N);
   }
   #endif
   MPI_Finalize();

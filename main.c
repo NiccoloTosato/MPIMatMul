@@ -3,8 +3,9 @@
 #include <string.h>
 #include <mpi.h>
 #include <cblas.h>
+
 #ifndef N
-   #define N 2000
+   #define N 20
 #endif
 
 
@@ -36,7 +37,6 @@ void print_matrix_square(double* A,int n_col) {
 }
 
 void mat_mul(double* restrict A, double* restrict B, double* restrict C, int n_col,int n_fix) {
-
   for(int i=0; i<n_fix;++i) {
     int register row=i*N;
     for(int j=0;j<n_col;++j){
@@ -162,10 +162,16 @@ int main(int argc,char* argv[]) {
     accumulator+=comm_time;
     //MPI_Type_free(&blocco);
 
-#ifndef DGEMM
-    mat_mul(A, buffer, C+offset, n_col, n_fix);
-#else
+#ifdef DGEMM
     cblas_dgemm ( CblasRowMajor, CblasNoTrans, CblasNoTrans , n_fix , n_col , N , 1.0 , A , N , buffer , n_col , 0.0 ,  C+offset, N );
+
+#else
+    mat_mul(A, buffer, C+offset, n_col, n_fix);
+
+#endif
+#ifdef SUPER
+    if(p>=(procs-3))
+      printf("IT %d| ncol %d nfix %d offset %d rank %d\n",p,n_col,n_fix,offset,rank);
 #endif
 
   }

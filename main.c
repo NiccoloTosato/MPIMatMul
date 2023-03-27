@@ -5,7 +5,7 @@
 #include <cblas.h>
 
 #ifndef N
-   #define N 20
+   #define N 25
 #endif
 
 
@@ -18,18 +18,19 @@ void print_matrix(double* A,int n_col) {
   }
 }
 
-void print_matrix_transpose(double* A,int n_col) {
+
+void print_matrix_square(double* A,int n_col) {
   //debug purpose: print a matrix
-  for(int i=0;i<N;++i){
+  for(int i=0;i<n_col;++i){
     for(int j=0;j<n_col;++j)
       printf("%3.3g ",A[j+i*n_col]);
     printf("\n");
   }
 }
 
-void print_matrix_square(double* A,int n_col) {
+void print_matrix_transpose(double* A,int n_col) {
   //debug purpose: print a matrix
-  for(int i=0;i<n_col;++i){
+  for(int i=0;i<N;++i){
     for(int j=0;j<n_col;++j)
       printf("%3.3g ",A[j+i*n_col]);
     printf("\n");
@@ -122,7 +123,7 @@ int main(int argc,char* argv[]) {
   rank_mat(B,N*n_fix,rank); //ogni matrice ha il rank del possesore
 
   double* C=malloc(N*n_fix*sizeof(double));
-  memset(C, 0, N*n_fix);
+  memset(C, 0, N*n_fix*sizeof(double));
 
   //allocate the buffer, it use the larger n_col possible
   double* buffer=malloc(N*n_buffer*sizeof(double));
@@ -135,6 +136,7 @@ int main(int argc,char* argv[]) {
 
 
   //MPI_Datatype blocco;
+  MPI_Barrier(MPI_COMM_WORLD);
   tot_time+=MPI_Wtime();
   for(int p=0;p<procs;++p){
     
@@ -151,47 +153,47 @@ int main(int argc,char* argv[]) {
     
     //MPI_Type_size(blocco, &size);
     
-    
+    comm_time=MPI_Wtime();    
     extract(square,B+offset,n_fix,n_col);
-
-    comm_time=MPI_Wtime();
-
     MPI_Allgatherv( square , n_col*n_fix, MPI_DOUBLE,
                     buffer ,recvcount,displacement,MPI_DOUBLE,MPI_COMM_WORLD);
     comm_time=MPI_Wtime() - comm_time;
     accumulator+=comm_time;
     //MPI_Type_free(&blocco);
-
+    
 #ifdef DGEMM
     cblas_dgemm ( CblasRowMajor, CblasNoTrans, CblasNoTrans , n_fix , n_col , N , 1.0 , A , N , buffer , n_col , 0.0 ,  C+offset, N );
-
 #else
     mat_mul(A, buffer, C+offset, n_col, n_fix);
-
 #endif
+
 #ifdef SUPER
     if(p>=(procs-3))
       printf("IT %d| ncol %d nfix %d offset %d rank %d\n",p,n_col,n_fix,offset,rank);
 #endif
-
   }
+  MPI_Barrier(MPI_COMM_WORLD);
   tot_time=MPI_Wtime()-tot_time;
   if(rank==0)
     printf("%d %f %f\n",procs,tot_time,accumulator);
   
 
-#ifdef DEBUG
-
-  double* C_final=malloc(N*N*sizeof(double));
-  for(int p=0;p<procs;++p){
-    recvcount[p]=N * calculate_col(N,procs,p);
-  }
-
-  set_displacement(displacement,recvcount,procs);
-
-  double* B_final=malloc(N*N*sizeof(double));
-  double* A_final=malloc(N*N*sizeof(double));
-  double* C_final2=malloc(N*N*sizeof(double));
+#ifdef TESTRESULT
+  double* C_final=NULL;
+  double* B_final=NULL;
+  double* A_final=NULL;
+  double* C_final_dgemm=NULL;
+    
+  if(rank==0) {
+    C_final=malloc(N*N*sizeof(double));
+    for(int p=0;p<procs;++p){
+      recvcount[p]=N * calculate_col(N,procs,p);
+    }
+    set_displacement(displacement,recvcount,procs);
+    B_final=malloc(N*N*sizeof(double));
+    A_final=malloc(N*N*sizeof(double));
+    C_final_dgemm=malloc(N*N*sizeof(double));
+  } 
   MPI_Gatherv(A,
               N*n_fix,
               MPI_DOUBLE,
@@ -217,20 +219,23 @@ int main(int argc,char* argv[]) {
               0,
               MPI_COMM_WORLD);
   if (rank==0) {
-  cblas_dgemm ( CblasRowMajor, CblasNoTrans, CblasNoTrans , N , N , N , 1.0 , A_final , N , B_final , N , 0.0 ,  C_final2, N );
-  for(int i=0;i<N*N;++i) {
-    if (C_final[i] != C_final2[i])
-      print("Errore");
-  }
+    cblas_dgemm ( CblasRowMajor, CblasNoTrans, CblasNoTrans , N , N , N , 1.0 , A_final , N , B_final , N , 0.0 ,  C_final_dgemm, N );
+    int flag=0;
+    for(int i=0;i<N*N;++i) {
+      if (abs(C_final[i] - C_final_dgemm[i]) > 1E-6) {
+	printf("Errore %f %f\n",C_final[i],C_final_dgemm[i]);
+	flag++;
+      }
+    }
+    printf("Errori rilevati: %d\n",flag);
   }
 #endif
 
-#if ( defined DEBUG2 || defined DEBUG)
+#ifdef DEBUG
   if(rank==0){
     printf("FINALEEEE \n");
-    print_matrix(C_final2,N);
+    print_matrix(C_final,N);
   }
   #endif
   MPI_Finalize();
-
 }

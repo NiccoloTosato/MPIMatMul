@@ -26,12 +26,14 @@ void mat_mul(double* restrict   A,  double* restrict  B, double* restrict   C, i
 
 void init_mat(double* A, int n_elem,int offset){
   //init the matrix sequentially
+#pragma omp parallel for 
   for(int i=0;i<n_elem;++i)
     A[i]=i+offset;
 }
 
 void rank_mat(double* A, int n_elem,int rank){
   //init the matrix with the value of the rank
+#pragma omp parallel for 
   for(int i=0;i<n_elem;++i)
     A[i]=rank;
 }

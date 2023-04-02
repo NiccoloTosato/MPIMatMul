@@ -4,20 +4,9 @@
 #include <mpi.h>
 #include <cblas.h>
 #include "auxiliary.h"
-
-int calculate_col(int tot_col,int procs,int rank) {
-  //calculate how many row belong to the current rank
-  return (rank < tot_col % procs) ? tot_col/procs +1 : tot_col/procs;
-}
-
-
-int calculate_offset(int procs,int tot_col,int iter) {
-  //calculate the offset for each block
-  int n_resto = (tot_col / procs) + 1;
-  int n_normale = (tot_col / procs);
-  int diff = iter - (tot_col % procs);
-    return (iter < tot_col % procs) ? n_resto*iter  : n_resto * (tot_col % procs) + n_normale * diff ;
-}
+#include <cublas.h>
+#include <cuda_runtime.h>
+#include "cublas_v2.h"
 
 int main(int argc,char* argv[]) {
   MPI_Init(&argc,&argv);
@@ -37,26 +26,39 @@ int main(int argc,char* argv[]) {
   //ad ogni iterazione verra' rivisto il numero di colonne
   int n_col;
 
-  double* A=malloc(N*n_fix*sizeof(double));
+  double* A= (double*) malloc(N*n_fix*sizeof(double));
   //memset(A, 0, N*n_col);
   rank_mat(A,n_fix*N,rank); //ogni matrice ha il rank del possesore
 
-  double* B=malloc(N*n_fix*sizeof(double));
+  double* B= (double*) malloc(N*n_fix*sizeof(double));
   //memset(B, 0, N*n_col);
   rank_mat(B,N*n_fix,rank); //ogni matrice ha il rank del possesore
 
-  double* C=malloc(N*n_fix*sizeof(double));
+  double* C= (double*) malloc(N*n_fix*sizeof(double));
   memset(C, 0, N*n_fix*sizeof(double)); //inizializzo C a zero
 
   //allocate the buffer, it use the larger n_col possible
-  double* buffer=malloc(N*n_buffer*sizeof(double)); 
+  double* buffer= (double*)  malloc(N*n_buffer*sizeof(double)); 
   //allocate the buffer to linearize the block
-  double* square=malloc(n_buffer*n_buffer*sizeof(double));
+  double* square= (double*)  malloc(n_buffer*n_buffer*sizeof(double));
 
   //allocate displacement ad recvout array
-  int* displacement = malloc(procs*sizeof(int));
-  int* recvcount = malloc(procs*sizeof(int));
+  int* displacement = (int*)  malloc(procs*sizeof(int));
+  int* recvcount = (int*)  malloc(procs*sizeof(int));
 
+#ifdef CUBLAS
+  double* A_device;
+  double* buffer_device;
+  double* C_device;
+  cudaMalloc((void**)&A_device, N * n_fix * sizeof(double));
+  cudaMalloc((void**)&buffer_device, N * n_fix * sizeof(double));
+  cudaMalloc((void**)&C_device, n_fix * n_fix * sizeof(double));
+
+  cudaMemcpy(A_device, A, N * n_fix * sizeof(double),cudaMemcpyHostToDevice);
+  cublasHandle_t handle;
+  cublasCreate(&handle);
+#endif
+  
   //MPI_Datatype blocco;
 
   MPI_Barrier(MPI_COMM_WORLD);
@@ -72,7 +74,7 @@ int main(int argc,char* argv[]) {
     //MPI_Type_commit(&blocco);
 
     int offset=calculate_offset(procs,N,p);
-
+    
     //MPI_Type_size(blocco, &size);
 
     comm_time=MPI_Wtime();    
@@ -80,12 +82,31 @@ int main(int argc,char* argv[]) {
 
     MPI_Allgatherv( square , n_col*n_fix, MPI_DOUBLE,
                     buffer ,recvcount,displacement,MPI_DOUBLE,MPI_COMM_WORLD);
+#ifdef CUBLAS
+    cudaMemcpy(buffer_device, buffer, N * n_col * sizeof(double),cudaMemcpyHostToDevice);
+#endif
+
     comm_time=MPI_Wtime() - comm_time;
     accumulator+=comm_time;
     //MPI_Type_free(&blocco);
 
 #ifdef DGEMM
-    cblas_dgemm ( CblasRowMajor, CblasNoTrans, CblasNoTrans , n_fix , n_col , N , 1.0 , A , N , buffer , n_col , 0.0 ,  C+offset, N );
+    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans , n_fix , n_col , N , 1.0 , A , N , buffer , n_col , 0.0 ,  C+offset, N );
+#elif CUBLAS
+    /*
+    cublasStatus_t cublasDgemm(cublasHandle_t handle,
+                           cublasOperation_t transa, cublasOperation_t transb,
+                           int m, int n, int k,
+                           const double          *alpha,
+                           const double          *A, int lda,
+                           const double          *B, int ldb,
+                           const double          *beta,
+                           double          *C, int ldc) */
+    double alpha = 1.0;
+        double beta = 0.0;	
+    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, n_fix, n_col, N, &alpha, buffer_device, n_fix, A_device, N, &beta, C_device, n_fix);
+    for(int i=0;i<n_fix;++i)
+      cudaMemcpy(C+offset+N*i, C_device+n_fix*i, n_col *  sizeof(double),cudaMemcpyDeviceToHost);
 #else
     mat_mul(A, buffer, C+offset, n_col, n_fix,N);
 #endif

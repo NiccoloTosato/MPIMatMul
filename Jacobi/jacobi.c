@@ -8,11 +8,13 @@
 #include <sys/time.h>
 #include <mpi.h>
 
+#ifdef HDF5
 #include "hdf5.h"
-
 #define H5FILE_NAME     "jacobi.h5"
 #define DATASETNAME 	"diffusion" 
 #define RANK   2
+#endif
+
 
 
 /*** function declarations ***/
@@ -75,6 +77,7 @@ int main(int argc, char* argv[]){
   const int dev_id = rank % num_dev;         
   acc_set_device_num(dev_id,acc_device_nvidia); // assign GPU to one MPI process
   acc_init(acc_device_nvidia);                                 // OpenACC call
+  printf("Rank %d/%d, device %d/%d\n",rank,size,dev_id,num_dev);
 #endif
 
   // timing variables
@@ -102,14 +105,8 @@ int main(int argc, char* argv[]){
   if(rank==0) {
     printf("matrix size = %zu\n", dimension);
     printf("number of iterations = %zu\n", iterations);
-    printf("element for checking = Mat[%zu,%zu]\n",row_peek, col_peek);
   }
 
-  if((row_peek > dimension) || (col_peek > dimension)){
-    fprintf(stderr, "Cannot Peek a matrix element outside of the matrix dimension\n");
-    fprintf(stderr, "Arguments n and m must be smaller than %zu\n", dimension);
-    return 1;
-  }
 
   size_t nloc=dimension/size;
   if(rank < (dimension % size))
@@ -170,8 +167,9 @@ int main(int argc, char* argv[]){
  }
 
 
-#pragma acc kernels present(matrix[:(dimension+2)*(nloc+2)],matrix_new[:(dimension+2)*(nloc+2)]) 
+#pragma acc  data present(matrix[:(dimension+2)*(nloc+2)],matrix_new[:(dimension+2)*(nloc+2)]) 
  {
+  #pragma acc parallel loop collapse(2)
    for(int i = 1 ; i <= nloc; ++i )
      for(int j = 1; j <= dimension; ++j )
        matrix_new[ ( i * ( dimension + 2 ) ) + j ] = ( 0.25 ) * 
@@ -198,11 +196,16 @@ int main(int argc, char* argv[]){
  matrix = matrix_new;
  matrix_new = tmp_matrix;
 
+
+#ifdef HDF5
  if((it % 100)==0) {
    image++;
    save_hdf(dimension,image,nloc,MPI_COMM_WORLD,matrix) ;
  }
+#endif
+
 }
+
 
   //Back to the host
 #pragma acc exit data copyout(matrix[:(dimension+2)*(nloc+2)],matrix_new[:(dimension+2)*(nloc+2)]) 
@@ -245,6 +248,7 @@ int main(int argc, char* argv[]){
   return 0;
 }
 
+#ifdef HDF5
 void save_hdf(int dimension,int image_id,int nloc,MPI_Comm comm,double* matrix) {
   herr_t	status;
   int rank;
@@ -318,6 +322,7 @@ void save_hdf(int dimension,int image_id,int nloc,MPI_Comm comm,double* matrix) 
     H5Pclose(plist_id);
     H5Fclose(file_id);
 }
+#endif
 
 void evolve( double * matrix, double *matrix_new, size_t dimension , size_t nloc){
   

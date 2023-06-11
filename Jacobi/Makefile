@@ -1,29 +1,14 @@
-# inputs for the executables
+SHELL = /bin/sh
+CC = mpicc
+GCC = gcc
 
-dim = 10
-it  = 100
-r = 3
-c = 3
+jacobi_cpu:
+	${CC} jacobi.c -O3 -o ${@}.x 
 
-CC=mpicc
-CFLAGS=-O3 -Wall -Wextra
+jacobi_hdf5:
+	${CC} jacobi.c -O3 -o ${@}.x -I ${HDF5_INC} -L ${HDF5_LIB} -lhdf5 -DHDF5 -DDUMP
 
-SRCS=$(wildcard *.c)
-EXE=$(SRCS:.c=.x)
-
-all: $(EXE)
-
-run: clean all
-	./$(EXE) $(dim) $(it) $(r) $(c)
-
-%.x: %.c
-	$(CC) $< $(CFLAGS) -o $@
-
+jacobi_gpu:
+	${CC} jacobi.c -o ${@}.x -DOPENACC -Minfo=all -acc -ta=tesla,time -fast
 clean:
-	@rm -f *~ $(EXE) solution_*.dat 
-
-plot:
-	@gnuplot -p plot.plt
-
-.PHONY: clean plot all
-
+	rm -f *.x

@@ -1,0 +1,19 @@
+Accelerator Kernel Timing data
+/m100/home/usertrain/a08tra74/ParallelProgramming/Jacobi/jacobi.c
+  main  NVIDIA  devicenum=1
+    time(us): 811
+    147: data region reached 1 time
+        147: data copyin transfers: 2
+             device time(us): total=405 max=203 min=202 avg=202
+    170: compute region reached 100 times
+        170: kernel launched 100 times
+            grid: [12208]  block: [128]
+            elapsed time(us): total=7,104 max=112 min=61 avg=71
+    170: data region reached 200 times
+    185: compute region reached 100 times
+        185: kernel launched 100 times
+            grid: [1]  block: [1]
+            elapsed time(us): total=3,029 max=39 min=25 avg=30
+    211: data region reached 1 time
+        211: data copyout transfers: 2
+             device time(us): total=406 max=204 min=202 avg=203

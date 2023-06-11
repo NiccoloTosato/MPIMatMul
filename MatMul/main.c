@@ -3,17 +3,15 @@
 #include <string.h>
 #include <mpi.h>
 #include "auxiliary.h"
-
 #if defined(TEST) || defined(DGEMM) || defined(DEBUG)
 #include <cblas.h>
 #endif
 
-
 #ifdef CUBLAS
-#define FAST
 #include <cublas.h>
 #include <cuda_runtime.h>
 #include "cublas_v2.h"
+
 // error handling MACRO from https://gist.github.com/jefflarkin/5390993
 #define cudaCheckError() {                                          \
     cudaError_t e=cudaGetLastError();				    \
@@ -22,9 +20,27 @@
       exit(0);								\
     }									\
   }
+
+#define TimeIt(x)  ({		\
+      cudaEvent_t start, stop;	\
+      cudaEventCreate(&start);			\
+      cudaEventCreate(&stop);  \
+      cudaEventRecord(start, 0); \
+      x;			 \
+      cudaCheckError();		 \
+      cudaEventRecord(stop, 0);	 \
+      cudaEventSynchronize(stop);		\
+      float t;						\
+      cudaEventElapsedTime(&t, start, stop); cudaEventDestroy(start); cudaEventDestroy(stop); t/1000; })
+
 #endif
 
+#define MPITime(x) ({	\
+  double t=MPI_Wtime(); \
+      x;			 \
+      t=MPI_Wtime()-t; t; })
 
+  
 int main(int argc,char* argv[]) {
 
   //init mpi environment!
@@ -35,13 +51,13 @@ int main(int argc,char* argv[]) {
   
   //time stuff
   double comm_time=0;
-  double tot_time=0;
-  double accumulator=0;
+  double copy_time=0;
+  double compute_time=0;
   
   int N=20;
   if (argc > 1)
     N=atoi(argv[1]);
-
+  
   //dimensione locale per il blocco relativo al rank, non cambiera mai, se sono uno dei primi mi becco il resto
   int n_fix=(rank < N % procs) ? N/procs +1 : N/procs;
   //dimensione del buffer, deve essere in grado di contenere il blocco piu grande che c'e' in giro
@@ -49,10 +65,10 @@ int main(int argc,char* argv[]) {
   //ad ogni iterazione verra' rivisto il numero di colonne
   int n_col;
   int offset;
-
+  
   double* A= (double*) malloc(N*n_fix*sizeof(double));
   rank_mat(A,n_fix*N,rank); //ogni matrice ha il rank del possesore
-
+  
   double* B= (double*) malloc(N*n_fix*sizeof(double));
   //rank_mat(B,N*n_fix,rank); //ogni matrice ha il rank del possesore
   offset=calculate_offset(procs,N,rank);
@@ -73,38 +89,42 @@ int main(int argc,char* argv[]) {
   int* recvcount = (int*)  malloc(procs*sizeof(int));
 
 #ifdef CUBLAS
+  cudaError_t error;
   cublasHandle_t handle;
-  cublasCreate(&handle);
 
   double* A_device;
   double* buffer_device;
   double* C_device;
+
+  //process binding
   int deviceCount;
   cudaGetDeviceCount (&deviceCount) ;
   cudaSetDevice(rank%deviceCount);
-  {
-    int device;
-    cudaGetDevice(&device);
-    printf("Cuda device %d/%d, rank %d\n",device,deviceCount,rank);
-    cudaCheckError();
-  }
+  cudaCheckError();
+
+  int device;
+  cudaGetDevice(&device);
+  printf("Cuda device %d/%d, rank %d\n",device,deviceCount,rank);
+
+  cublasCreate(&handle);
+  cudaCheckError();
+
   cudaMalloc((void**)&A_device, N * n_fix * sizeof(double));
+  cudaCheckError();
+
   cudaMalloc((void**)&buffer_device, N * n_buffer * sizeof(double));
+  cudaCheckError();
 
-#if (defined CUBLAS) && (defined FAST)
-  cudaMalloc((void**)&C_device, N * n_fix * sizeof(double));
+  cudaMalloc((void**)&C_device, N* n_fix * sizeof(double));
+  cudaCheckError();
+
   cudaMemset((void*)C_device, 0, N * n_fix * sizeof(double));
-//#else
-//  cudaMalloc((void**)&C_device, n_fix * n_fix * sizeof(double));
-//  cudaMemset((void*)C_device, 0, n_fix * n_fix * sizeof(double));
-#endif
+  cudaCheckError();
+
   cudaMemcpy(A_device, A, N * n_fix * sizeof(double),cudaMemcpyHostToDevice);
+  cudaCheckError();
+
 #endif
-
-
-  MPI_Barrier(MPI_COMM_WORLD);
-  tot_time+=MPI_Wtime();
-
   for(int p=0;p<procs;++p){
 
     //numero di colonne all'iterazione corrente
@@ -112,68 +132,40 @@ int main(int argc,char* argv[]) {
     set_recvcout(recvcount,p,procs,N);
     set_displacement(displacement,recvcount,procs);
 
-    //MPI_Type_vector(n_buffer, n_buffer, N, MPI_DOUBLE, &blocco);
-    //MPI_Type_commit(&blocco);
-
     offset=calculate_offset(procs,N,p);
-    
-    //MPI_Type_size(blocco, &size);
-
-    comm_time=MPI_Wtime();    
-    extract(square,B+offset,n_fix,n_col,N);
-
+    MPI_Barrier(MPI_COMM_WORLD);
+    comm_time+=MPITime( extract(square,B+offset,n_fix,n_col,N); );
+    comm_time+=MPITime( 
     MPI_Allgatherv( square , n_col*n_fix, MPI_DOUBLE,
                     buffer ,recvcount,displacement,MPI_DOUBLE,MPI_COMM_WORLD);
-
-
+			);    
+    
 #ifdef CUBLAS
-    cudaMemcpy(buffer_device, buffer, N * n_col * sizeof(double),cudaMemcpyHostToDevice);
+    copy_time+=MPITime(cudaMemcpy(buffer_device, buffer, N * n_col * sizeof(double),cudaMemcpyHostToDevice););
 #endif
     
-    comm_time=MPI_Wtime() - comm_time;
-    accumulator+=comm_time;
-    //MPI_Type_free(&blocco);
-    
 #ifdef DGEMM
-    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans , n_fix , n_col , N , 1.0 , A , N , buffer , n_col , 0.0 ,  C+offset, N );
+    compute_time = MPITime( cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans , n_fix , n_col , N , 1.0 , A , N , buffer , n_col , 0.0 ,  C+offset, N ); );
 #elif CUBLAS
-
     double alpha = 1.0;
     double beta = 0.0;
 
-#ifdef FAST
-    //cublasStatus_t stat;
-    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, n_col,  n_fix, N , &alpha, buffer_device, n_col, A_device, N, &beta, C_device+offset, N);    
-//#else
-//    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, n_col,  n_fix, N , &alpha, buffer_device, n_col, A_device, N, &beta, C_device, n_col); 
-//    for(int i=0;i<n_fix;++i)
-//      cudaMemcpy(C+offset+N*i, C_device+n_col*i, n_col * sizeof(double),cudaMemcpyDeviceToHost);
-#endif
+    compute_time = TimeIt(cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, n_col,  n_fix, N , &alpha, buffer_device, n_col, A_device, N, &beta, C_device+offset, N));
 
 #else
-    mat_mul(A, buffer, C+offset, n_col, n_fix,N);
+    compute_time = MPITime( mat_mul(A, buffer, C+offset, n_col, n_fix,N); );
 #endif
-
-#ifdef SUPER
-    if(p>=(procs-3))
-      printf("IT %d| ncol %d nfix %d offset %d rank %d\n",p,n_col,n_fix,offset,rank);
-#endif
-    
   }
 
-  #if defined FAST && defined CUBLAS
-  cudaMemcpy(C, C_device, n_fix * N *  sizeof(double),cudaMemcpyDeviceToHost);
+  #ifdef CUBLAS
+  copy_time+=TimeIt(cudaMemcpy(C, C_device, n_fix * N *  sizeof(double),cudaMemcpyDeviceToHost););
   #endif
 
-  MPI_Barrier(MPI_COMM_WORLD);
-  tot_time=MPI_Wtime()-tot_time;
   if(rank==0)
-    printf("%d %f %f\n",procs,tot_time,accumulator);
-
+    printf("%d %f %f %f\n",procs,compute_time,comm_time,copy_time);
 
 #if (defined TEST || defined DEBUG)
   // Test the program comparing the output between dgemm plain and the previous calculated output.
-
   double* C_final=NULL;
   double* B_final=NULL;
   double* A_final=NULL;
@@ -188,7 +180,6 @@ int main(int argc,char* argv[]) {
 
     //alloco una matrice NxN da calcolare cona la dgemm
     C_final_dgemm=malloc(N*N*sizeof(double));
-
     for(int p=0;p<procs;++p){
       recvcount[p]=N * calculate_col(N,procs,p);
     }
@@ -239,7 +230,6 @@ int main(int argc,char* argv[]) {
     print_matrix(C_final,N,N);
   }
 #endif
-
 
 #endif
   MPI_Finalize();

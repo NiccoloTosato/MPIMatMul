@@ -10,12 +10,11 @@
 #include <sys/time.h>
 #include <stdbool.h>
 #define pi 3.14159265358979323846
-
 #include <mpi.h>
 
 typedef struct {
 
-#ifdef __HOMEMADE
+#ifndef __HOMEMADE
   fftw_plan fw_plan; 
   fftw_plan bw_plan;
 #else

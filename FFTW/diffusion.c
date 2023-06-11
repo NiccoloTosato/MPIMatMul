@@ -30,7 +30,7 @@ int main( int argc, char* argv[] ){
     // Grid size
     int n1 = 64, n2 = 64, n3 = 64;
     // time step for time integration
-    double dt = 1.1e-5; 
+    double dt = 1.e-5; 
     // number of time steps
     int nstep = 1000; 
     // Radius of diffusion channel
@@ -172,7 +172,7 @@ int main( int argc, char* argv[] ){
       }
 	
       for( ii = 0; ii < local_size_grid; ++ii ) conc[ii] += dt * dconc[ii];
-      if( istep % 30 == 1 ){
+      if( istep % 20 == 1 ){
 
             // Check the normalization of conc
             ss = 0.;
@@ -210,11 +210,15 @@ int main( int argc, char* argv[] ){
             if( mype == 0 ) printf(" %d %17.15f %17.15f Elapsed time per iteration %f \n", istep, global_r2mean, global_ss, ( end - start ) / istep );
 
             // HINT: Use parallel version of output routines
+#ifdef DUMP
             plot_data_2d("concentration", n1, n2, n3, n1_local, n1_local_offset, 2, conc);
+#endif
+
 	    //plot_data_1d("1d_conc", n1, n2, n3, n1_local, n1_local_offset,3, conc);
 	}
 	
-    } 
+} 
+            if( mype == 0 ) printf("Total time %f \n",( end - start ));
 
     close_fftw(&fft_h);
     //free(diffusivity);

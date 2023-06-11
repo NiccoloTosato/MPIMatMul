@@ -50,7 +50,7 @@ void init_fftw(fftw_mpi_handler *fft, int n1, int n2, int n3, MPI_Comm comm){
   fft->global_size_grid = n1 * n2 * n3;
   fft->mpi_comm = comm;
   
-  #ifdef __HOMEMADE
+  #ifndef __HOMEMADE
   /*
    * Call to fftw_mpi_init is needed to initialize a parallel enviroment for the fftw_mpi
    */
@@ -97,25 +97,29 @@ fft->fw_2d_plan =fftw_plan_many_dft(2, n23, n1/size,
                             fft->fftw_data, n23,  
                             1, n2*n3, 
                             fft->fftw_data,   n23, 
-                             1, n2*n3, FFTW_FORWARD, FFTW_ESTIMATE);
+                            1, n2*n3, //stride di 1, continguo in n1, faccio n1_loc piani
+                            FFTW_FORWARD, FFTW_ESTIMATE);
 
 fft->fw_1d_plan =fftw_plan_many_dft(1, n11, n2 * n3 /size, 
                             fft->fftw_tmp, n11,  
-                             n2 * n3 /size, 1, 
+                            n2 * n3 /size, 1, 
                             fft->fftw_tmp,  n11, 
-                            n2 * n3 /size,1, FFTW_FORWARD, FFTW_ESTIMATE);
+                            n2 * n3 /size, 1, 
+                            FFTW_FORWARD, FFTW_ESTIMATE);
 
 fft->bw_2d_plan =fftw_plan_many_dft(2, n23, n1/size, 
                             fft->fftw_data, n23,  
                             1, n2*n3, 
                             fft->fftw_data,   n23, 
-                            1, n2*n3, FFTW_BACKWARD, FFTW_ESTIMATE);
+                            1, n2*n3,
+                            FFTW_BACKWARD, FFTW_ESTIMATE);
 
 fft->bw_1d_plan =fftw_plan_many_dft(1, n11, n2 * n3 /size, 
                             fft->fftw_tmp, n11,  
-                             n2 * n3 /size, 1, 
+                            n2 * n3 /size, 1, 
                             fft->fftw_tmp,  n11, 
-                            n2 * n3  / size,1, FFTW_BACKWARD, FFTW_ESTIMATE);
+                            n2 * n3  / size, 1,
+                            FFTW_BACKWARD, FFTW_ESTIMATE);
 
 /*
   fft->bw_plan_1d =
@@ -227,7 +231,7 @@ void fft_3d( fftw_mpi_handler* fft, double *data_direct, fftw_complex* data_rec,
       for(i = 0; i < fft->local_size_grid; i++){
       	  fft->fftw_data[i] =  data_direct[i] + 0.0 * I;
       	}   
-  #ifdef __HOMEMADE
+  #ifndef __HOMEMADE
     fftw_mpi_execute_dft( fft->fw_plan, fft->fftw_data, fft->fftw_data );
   #else
     fftw_execute(fft->fw_2d_plan); // 2D transform along planes
@@ -242,14 +246,14 @@ void fft_3d( fftw_mpi_handler* fft, double *data_direct, fftw_complex* data_rec,
   } else {   
   memcpy(fft->fftw_data, data_rec, fft->local_size_grid * sizeof(fftw_complex) );
 
-  #ifdef __HOMEMADE
+  #ifndef __HOMEMADE
   fftw_mpi_execute_dft(fft->bw_plan, fft->fftw_data, fft->fftw_data);
   #else
 
   fftw_execute(fft->bw_2d_plan); // 2D transform along planes
     MPI_Alltoallw(fft->fftw_data, fft->sendcounts, fft->sdispls, fft->sdatatype, fft->fftw_tmp, fft->recvcounts, fft->rdispls, fft->rdatatype,
                   fft->mpi_comm);
-    fftw_execute(fft->fw_1d_plan);
+    fftw_execute(fft->bw_1d_plan);
     MPI_Alltoallw(fft->fftw_tmp, fft->recvcounts, fft->rdispls, fft->rdatatype, fft->fftw_data, fft->sendcounts, fft->sdispls, fft->sdatatype,
                   fft->mpi_comm);  
  #endif

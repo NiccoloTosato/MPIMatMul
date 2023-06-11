@@ -6,17 +6,17 @@ CC = mpicc
 INCLUDES = -I${OPENBLAS_INC}   -I ${CUDA_INC} 
 LIBS = -lopenblas -fopenmp -lcublas -lcudart  -L${OPENBLAS_LIB}  -L${CUDA_LIB} 
 
-all: matrix debug dgemm cudgemm
+all: matrix test dgemm cuda
 matrix: auxiliary.o
 	${CC} main.c auxiliary.o  ${CFLAGS} ${INCLUDES} -o ${@}.x  ${LIBS}
 
-debug: auxiliary.o
+test: auxiliary.o
 	${CC} main.c auxiliary.o  ${CFLAGS} ${INCLUDES} -o matrix_${@}.x  ${LIBS}  -DTEST
 
 dgemm: auxiliary.o
 	${CC} main.c auxiliary.o  ${CFLAGS} ${INCLUDES} -o matrix_${@}.x  ${LIBS}  -DDGEMM
 
-cudgemm: auxiliary.o
+cuda: auxiliary.o
 	${CC} main.c auxiliary.o  ${CFLAGS} ${INCLUDES} -o matrix_${@}.x  ${LIBS}  -DCUBLAS
 
 auxiliary.o:

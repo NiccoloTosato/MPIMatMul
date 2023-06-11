@@ -62,8 +62,6 @@ double seconds( void );
 
 /*** end function declaration ***/
 
-
-
 int main(int argc, char* argv[]){
 
   // MPI init env
@@ -72,6 +70,7 @@ int main(int argc, char* argv[]){
   MPI_Comm_size(MPI_COMM_WORLD,&size);
   MPI_Comm_rank(MPI_COMM_WORLD,&rank);
 
+  double comm_time=0,compute_time=0;
 #ifdef _OPENACC
   const int num_dev = acc_get_num_devices(acc_device_nvidia);  // #GPUs
   const int dev_id = rank % num_dev;         
@@ -81,7 +80,7 @@ int main(int argc, char* argv[]){
 #endif
 
   // timing variables
-  double t_start, t_end, increment;
+  double increment;
 
   // indexes for loops
   size_t i, j, it;
@@ -141,9 +140,7 @@ int main(int argc, char* argv[]){
     }
 
   // Start algorithm
-  t_start = seconds();
   int width=(dimension+2);
-
   int image=0;
 
 #pragma acc enter data copyin(matrix[:(dimension+2)*(nloc+2)],matrix_new[:(dimension+2)*(nloc+2)])
@@ -152,7 +149,8 @@ int main(int argc, char* argv[]){
     //send up,recv bottom
     int send_to=  (rank-1)>=0 ? rank-1 : MPI_PROC_NULL;
     int recv_from= (rank+1)<size ? rank+1 : MPI_PROC_NULL;
-
+    double time = seconds();
+    
  #pragma acc host_data use_device(matrix)
  { 
 
@@ -165,8 +163,9 @@ int main(int argc, char* argv[]){
                  matrix, width, MPI_DOUBLE,
                  send_to, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
  }
+ comm_time+=seconds()-time;
 
-
+time=seconds();
 #pragma acc  data present(matrix[:(dimension+2)*(nloc+2)],matrix_new[:(dimension+2)*(nloc+2)]) 
  {
   #pragma acc parallel loop collapse(2)
@@ -178,10 +177,9 @@ int main(int argc, char* argv[]){
 	   matrix[ ( ( i + 1 ) * ( dimension + 2 ) ) + j ] + 
 	   matrix[ ( i * ( dimension + 2 ) ) + ( j - 1 ) ] ); 
  }
- 
+ compute_time+=seconds()-time;
 
 #ifdef _OPENACC
- 
   //swap the pointers on the device
 #pragma acc serial present(matrix[:(dimension+2)*(nloc+2)],matrix_new[:(dimension+2)*(nloc+2)])
  {
@@ -189,6 +187,7 @@ int main(int argc, char* argv[]){
    matrix = matrix_new;
    matrix_new = tmp_matrix;
  }
+
 #endif
 
  //in order to preserve data coherency swap pointers on the host
@@ -209,20 +208,19 @@ int main(int argc, char* argv[]){
 
   //Back to the host
 #pragma acc exit data copyout(matrix[:(dimension+2)*(nloc+2)],matrix_new[:(dimension+2)*(nloc+2)]) 
-  t_end = seconds();
   int* recvcount=NULL;
   int* displacement=NULL;
   double* matrix_final=NULL;
-
+  MPI_Barrier(MPI_COMM_WORLD);
   if (rank==0) {
-    printf( "\nelapsed time = %f seconds\n", t_end - t_start );
+    printf( "%d Computation time %f, communication time %f\n",size,compute_time,comm_time );
     recvcount=malloc(size*sizeof(int));
     displacement=malloc(size*sizeof(int));
     matrix_final=malloc((dimension+2)*(dimension+2)*sizeof(double));
     set_recvcout(recvcount,size,dimension);
     set_displacement(displacement,recvcount,size);
   }
-
+#ifdef DUMP
   if(rank==0){
     MPI_Gatherv(matrix_new, (dimension+2)*(nloc+1), MPI_DOUBLE,
                 matrix_final, recvcount, displacement,
@@ -240,7 +238,9 @@ int main(int argc, char* argv[]){
   if(rank==0) {
     save_gnuplot( matrix_final, dimension );
   }
-
+  
+#endif
+  
   MPI_Finalize();
   free( matrix );
   free( matrix_new );
@@ -352,7 +352,6 @@ void save_gnuplot( double *M, size_t dimension){
 
 // A Simple timer for measuring the walltime
 double seconds(){
-
     struct timeval tmp;
     double sec;
     gettimeofday( &tmp, (struct timezone *)0 );

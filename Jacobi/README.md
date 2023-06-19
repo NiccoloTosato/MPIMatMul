@@ -24,6 +24,7 @@ The intermediate step can be rendered using `Visit`:
 
 https://github.com/NiccoloTosato/ParallelProgramming/assets/22773880/352dc296-cf22-4367-a747-cbaceb137ed9
 
+https://raw.githubusercontent.com/NiccoloTosato/ParallelProgramming/main/Jacobi/plot/output.mp4
 
 ### Timing
 

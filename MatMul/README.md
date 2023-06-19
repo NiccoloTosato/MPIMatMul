@@ -17,14 +17,14 @@ In order to build on `m100`, execute `compile.sh`.
 
 ### *handmade* version 
 
-![Small matrix, handmade]("./plot/manual.png")
+![Small matrix, handmade](./plot/manual.png)
 
 ### `openBLAS` vs `cublas`
 
 
-![Small matrix]("./plot/small.png")
+![Small matrix](./plot/small.png)
 
-![Large matrix]("./plot/large.png")
+![Large matrix](./plot/large.png)
 
 
 

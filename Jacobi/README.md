@@ -21,7 +21,9 @@ The final result of the simulation can be visualized with the following plot:
 
 The intermediate step can be rendered using `Visit`:
 
-![](./plot/output.mp4)
+
+https://github.com/NiccoloTosato/ParallelProgramming/assets/22773880/352dc296-cf22-4367-a747-cbaceb137ed9
+
 
 ### Timing
 

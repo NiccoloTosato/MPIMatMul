@@ -21,7 +21,7 @@ The final result of the simulation can be visualized with the following plot:
 
 The intermediate step can be rendered using `Visit`:
 
-./plot/output.mp4
+![](./plot/output.mp4)
 
 ### Timing
 

@@ -121,11 +121,6 @@ fft->bw_1d_plan =fftw_plan_many_dft(1, n11, n2 * n3 /size,
                             n2 * n3  / size, 1,
                             FFTW_BACKWARD, FFTW_ESTIMATE);
 
-/*
-  fft->bw_plan_1d =
-      fftw_plan_many_dft(1, n_1d, nz * ny / size, fft->buffer, n_1d, nz * ny / size, 1, fft->buffer,
-                         n_1d, nz * ny / size, 1, FFTW_BACKWARD, FFTW_ESTIMATE);
-*/
 
 /*
  int MPI_Type_vector(int count,
